@@ -1,0 +1,25 @@
+* {
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background: linear-gradient(to bottom, #1a1a2e, #1b2e55);
+    min-height: 100vh;
+    overflow: hidden;
+}
+
+.snowflake {
+    position: fixed;
+    background-color: white;
+    border-radius: 50%;
+    pointer-events: none;
+    will-change: transform;
+    animation: fall linear infinite;
+}
+
+@keyframes fall {
+    100% {
+        transform: translateY(100vh);
+    }
+}
