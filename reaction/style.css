@@ -1,0 +1,61 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background-color: black;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+}
+
+button {
+    position: absolute;
+    top: 58%;
+    border-radius: 15px;
+    border: none;
+    font-family: monospace;
+    padding: 10px 20px;
+    font-size: 250%;
+    cursor: pointer;
+    height: 12%;
+    width: 10%;
+    transition: .5s;
+}
+
+button:hover {
+    background-color: green;
+    width: 12%;
+    font-size: 260%;
+    height: 11%;
+}
+
+p {
+    position: absolute;
+    top: 74%;
+    text-align: center;
+    color: white;
+    font-family: monospace;
+    font-size: 24px;
+}
+
+.circle {
+    position: absolute;
+    top: 15%;
+    width: 20%;
+    height: 40%;
+    background: red;
+    border-radius: 50%;
+}
+
+.ready {
+    background: green;
+    cursor: pointer;
+}
+
