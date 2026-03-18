@@ -18,7 +18,7 @@ btn.addEventListener("click", () => {
     }, getRandomNum(1000, 4000))
 })
 
-circle.addEventListener("click", () => {
+circle.addEventListener("mousedown", () => {
     if (!circle.classList.contains("ready")) {
         p.innerText = "too early"
         clearInterval(timeoutId)
