@@ -33,4 +33,5 @@ circle.addEventListener("click", () => {
         p.innerHTML = `0${Math.floor(answer / 1000)}:${answer % 1000}`
     }
     circle.classList.remove("ready")
+    isClicked = false
 })
