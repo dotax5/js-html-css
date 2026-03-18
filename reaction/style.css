@@ -16,13 +16,11 @@ body {
 }
 
 button {
-    position: absolute;
-    top: 58%;
     border-radius: 15px;
     border: none;
     font-family: monospace;
     padding: 10px 20px;
-    font-size: 250%;
+    font-size: 200%;
     cursor: pointer;
     height: 12%;
     width: 10%;
@@ -37,8 +35,6 @@ button:hover {
 }
 
 p {
-    position: absolute;
-    top: 74%;
     text-align: center;
     color: white;
     font-family: monospace;
@@ -46,10 +42,8 @@ p {
 }
 
 .circle {
-    position: absolute;
-    top: 15%;
-    width: 20%;
-    height: 40%;
+    width: 30%;
+    aspect-ratio: 1 / 1;
     background: red;
     border-radius: 50%;
 }
