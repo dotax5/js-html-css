@@ -1,0 +1,37 @@
+body {
+    gap: 50px;
+    height: 100vh;
+    background-color: black;
+    color: white;
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+}
+
+.wr1,
+.wr2 {
+    gap: 100px;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.div1,
+.div2,
+.div3,
+.div4 {
+    font-size: 50px;
+    height: 200px;
+    width: 200px;
+    background-color: rgb(49, 45, 45);
+
+
+}
+
+.isActive {
+    background-color: rgb(5, 55, 5);
+}
