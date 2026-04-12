@@ -1,4 +1,4 @@
-const API_KEY = "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";
+const API_KEY = "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";
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 const MODELS = [
@@ -12,8 +12,8 @@ let state = {
     chats: [],
     currentChatId: null,
     settings: {
-        theme: localStorage.getItem("theme") || "light",
-        model: localStorage.getItem("model") || "openai/gpt-4o-mini"
+        theme: localStorage.getItem("theme") || "dark",
+        model: localStorage.getItem("model") || "z-ai/glm-4.5-air:free"
     }
 };
 
