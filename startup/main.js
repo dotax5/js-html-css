@@ -1,10 +1,11 @@
-const API_KEY = "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";
+// const API_KEY = "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";
+const API_KEY = "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";
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 const MODELS = [
-    { id: "openai/gpt-4o-mini", name: "GPT-4o Mini" },
+    { id: "openrouter/elephant-alpha", name: "Elephant" },
+    { id: "arcee-ai/trinity-large-preview:free", name: "Trinity Large Preview" },
     { id: "nvidia/nemotron-3-super-120b-a12b:free", name: "Nemotron 3 Super" },
-    { id: "google/gemma-4-31b-it:free", name: "Gemma 4 31B" },
     { id: "z-ai/glm-4.5-air:free", name: "GLM 4.5 (Air)" }
 ];
 
@@ -13,9 +14,11 @@ let state = {
     currentChatId: null,
     settings: {
         theme: localStorage.getItem("theme") || "dark",
-        model: localStorage.getItem("model") || "z-ai/glm-4.5-air:free"
+        model: localStorage.getItem("model") || "openrouter/elephant-alpha"
     }
 };
+
+let isLoading = false;
 
 function init() {
     loadState();
@@ -70,7 +73,6 @@ function renderModelSelect() {
 function setupEventListeners() {
     document.getElementById("newChatBtn").addEventListener("click", createNewChat);
     document.getElementById("sendBtn").addEventListener("click", sendMessage);
-    document.getElementById("clearChatBtn").addEventListener("click", clearCurrentChat);
     document.getElementById("deleteChatBtn").addEventListener("click", deleteCurrentChat);
     document.getElementById("themeToggle").addEventListener("click", toggleTheme);
     document.getElementById("menuToggle").addEventListener("click", toggleSidebar);
@@ -150,15 +152,6 @@ function switchToChat(chatId) {
     document.getElementById("sidebar").classList.remove("open");
 }
 
-function clearCurrentChat() {
-    const chat = getCurrentChat();
-    if (chat) {
-        chat.messages = [];
-        saveState();
-        renderMessages();
-    }
-}
-
 function deleteCurrentChat() {
     const chat = getCurrentChat();
     if (!chat) return;
@@ -183,8 +176,10 @@ function getCurrentChat() {
 
 async function sendMessage() {
     const input = document.getElementById("userInput");
+    const sendBtn = document.getElementById("sendBtn");
     const message = input.value.trim();
     
+    if (isLoading) return;
     if (!message) return;
     if (!state.settings.model) {
         alert("Please select a model");
@@ -194,12 +189,16 @@ async function sendMessage() {
     const chat = getCurrentChat();
     if (!chat) return;
     
+    isLoading = true;
+    sendBtn.disabled = true;
+    input.disabled = true;
+    
     if (chat.messages.length === 0) {
         chat.title = message.slice(0, 30) + (message.length > 30 ? "..." : "");
         updateChatTitle();
     }
     
-    chat.messages.push({ role: "user", content: message });
+    chat.messages.push({ role: "user", content: message.trim() });
     input.value = "";
     autoResize();
     renderMessages();
@@ -220,6 +219,10 @@ async function sendMessage() {
     chat.messages = chat.messages.filter(m => !m.loading);
     saveState();
     renderMessages();
+    
+    isLoading = false;
+    input.disabled = false;
+    sendBtn.disabled = false;
 }
 
 function showError(message) {
@@ -229,11 +232,18 @@ function showError(message) {
     setTimeout(() => toast.classList.remove("show"), 5000);
 }
 
+function enableInput() {
+    const input = document.getElementById("userInput");
+    const sendBtn = document.getElementById("sendBtn");
+    input.disabled = false;
+    sendBtn.disabled = false;
+}
+
 async function callAPI(userMessage, history) {
     const messages = [
         { role: "system", content: "You are a helpful assistant." },
         ...history.map(m => ({
-            role: m.role === "ai" ? "assistant" : "user",  // ← исправление здесь
+            role: m.role === "ai" ? "assistant" : "user", 
             content: m.content
         })),
         { role: "user", content: userMessage }
@@ -277,7 +287,7 @@ function renderMessages() {
     const chat = getCurrentChat();
     if (!chat) return;
     
-    chat.messages.forEach(msg => {
+    chat.messages.forEach((msg, index) => {
         const div = document.createElement("div");
         div.className = `message ${msg.role}`;
         
@@ -287,12 +297,73 @@ function renderMessages() {
             div.className += " error-message";
             div.textContent = msg.content;
         } else {
+            div.className += " actions";
             div.innerHTML = formatMessage(msg.content);
+            div.dataset.index = index;
+            
+            const btns = document.createElement("div");
+            btns.className = "message-btns";
+            
             const copyBtn = document.createElement("button");
-            copyBtn.className = "copy-btn";
-            copyBtn.textContent = "Copy";
-            copyBtn.addEventListener("click", () => navigator.clipboard.writeText(msg.content));
-            div.appendChild(copyBtn);
+            copyBtn.className = "msg-btn";
+            copyBtn.innerHTML = "📋";
+            copyBtn.title = "Copy";
+            copyBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                navigator.clipboard.writeText(msg.content);
+            });
+            btns.appendChild(copyBtn);
+            
+            if (msg.role === "user") {
+                const deleteBtn = document.createElement("button");
+                deleteBtn.className = "msg-btn delete";
+                deleteBtn.innerHTML = "🗑️";
+                deleteBtn.title = "Delete";
+                deleteBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    deleteMessage(index);
+                });
+                btns.appendChild(deleteBtn);
+                
+                const editBtn = document.createElement("button");
+                editBtn.className = "msg-btn";
+                editBtn.innerHTML = "✏️";
+                editBtn.title = "Edit";
+                editBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    startEditMessage(div, index, msg.content);
+                });
+                btns.appendChild(editBtn);
+                
+                const editInput = document.createElement("textarea");
+                editInput.className = "msg-btn edit-input";
+                editInput.value = msg.content;
+                editInput.addEventListener("keydown", (e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        saveEditMessage(index, editInput.value);
+                    }
+                    if (e.key === "Escape") {
+                        cancelEditMessage(div, index, msg.content);
+                    }
+                });
+                editInput.addEventListener("blur", () => saveEditMessage(index, editInput.value));
+                div.appendChild(editInput);
+            }
+            
+            if (msg.role === "ai") {
+                const regenerateBtn = document.createElement("button");
+                regenerateBtn.className = "msg-btn";
+                regenerateBtn.innerHTML = "🔄";
+                regenerateBtn.title = "Regenerate";
+                regenerateBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    regenerateResponse(index);
+                });
+                btns.appendChild(regenerateBtn);
+            }
+            
+            div.appendChild(btns);
         }
         
         container.appendChild(div);
@@ -303,6 +374,127 @@ function renderMessages() {
 
 function formatMessage(content) {
     return marked.parse(content);
+}
+
+function deleteMessage(index) {
+    const chat = getCurrentChat();
+    if (!chat) return;
+    
+    chat.messages.splice(index);
+    saveState();
+    renderMessages();
+}
+
+function startEditMessage(div, index, content) {
+    div.classList.add("editing");
+    const input = div.querySelector(".edit-input");
+    if (input) {
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+    }
+}
+
+let isEditing = false;
+
+function saveEditMessage(index, newContent) {
+    const chat = getCurrentChat();
+    if (!chat || isLoading) return;
+    
+    const div = document.querySelector(`.message[data-index="${index}"]`);
+    if (div) div.classList.remove("editing");
+    
+    const trimmedContent = newContent ? newContent.trim() : "";
+    
+    if (isEditing || !trimmedContent) return;
+    
+    isLoading = true;
+    isEditing = true;
+    
+    const input = document.getElementById("userInput");
+    const sendBtn = document.getElementById("sendBtn");
+    input.disabled = true;
+    sendBtn.disabled = true;
+    
+    chat.messages.splice(index + 1);
+    
+    chat.messages[index].content = trimmedContent;
+    
+    saveState();
+    renderMessages();
+    
+    const loadingMsg = { role: "ai", content: "", loading: true };
+    chat.messages.push(loadingMsg);
+    saveState();
+    renderMessages();
+    
+    const history = chat.messages.slice(0, -1).filter(m => !m.loading && (m.role === "user" || m.role === "ai"));
+    
+    callAPI(trimmedContent, history).then(response => {
+        loadingMsg.content = response;
+        loadingMsg.loading = false;
+        isLoading = false;
+        isEditing = false;
+        input.disabled = false;
+        sendBtn.disabled = false;
+        saveState();
+        renderMessages();
+    }).catch(error => {
+        showError(error.message);
+        chat.messages = chat.messages.filter(m => !m.loading);
+        isLoading = false;
+        isEditing = false;
+        input.disabled = false;
+        sendBtn.disabled = false;
+        saveState();
+        renderMessages();
+    });
+}
+
+function cancelEditMessage(div, index, originalContent) {
+    div.classList.remove("editing");
+}
+
+function regenerateResponse(index) {
+    const chat = getCurrentChat();
+    if (!chat || index === 0 || isLoading) return;
+    
+    const userMsgIndex = index - 1;
+    if (userMsgIndex < 0 || chat.messages[userMsgIndex].role !== "user") return;
+    
+    const userMessage = chat.messages[userMsgIndex].content;
+    
+    const history = chat.messages.slice(0, userMsgIndex).filter(m => !m.loading && (m.role === "user" || m.role === "ai"));
+    
+    chat.messages.splice(userMsgIndex + 1);
+    
+    const loadingMsg = { role: "ai", content: "", loading: true };
+    chat.messages.push(loadingMsg);
+    saveState();
+    renderMessages();
+    
+    const input = document.getElementById("userInput");
+    const sendBtn = document.getElementById("sendBtn");
+    input.disabled = true;
+    sendBtn.disabled = true;
+    isLoading = true;
+    
+    callAPI(userMessage, history).then(response => {
+        loadingMsg.content = response;
+        loadingMsg.loading = false;
+        isLoading = false;
+        input.disabled = false;
+        sendBtn.disabled = false;
+        saveState();
+        renderMessages();
+    }).catch(error => {
+        showError(error.message);
+        chat.messages = chat.messages.filter(m => !m.loading);
+        isLoading = false;
+        input.disabled = false;
+        sendBtn.disabled = false;
+        saveState();
+        renderMessages();
+    });
 }
 
 function updateChatTitle() {
