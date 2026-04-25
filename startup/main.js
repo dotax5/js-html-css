@@ -1,10 +1,8 @@
-// const API_KEY = "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";
 const API_KEY = "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";
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 const MODELS = [
-    { id: "openrouter/elephant-alpha", name: "Elephant" },
-    { id: "arcee-ai/trinity-large-preview:free", name: "Trinity Large Preview" },
+    { id: "openai/gpt-oss-120b:free", name: "gpt-oss-120b" },
     { id: "nvidia/nemotron-3-super-120b-a12b:free", name: "Nemotron 3 Super" },
     { id: "z-ai/glm-4.5-air:free", name: "GLM 4.5 (Air)" }
 ];
@@ -14,11 +12,12 @@ let state = {
     currentChatId: null,
     settings: {
         theme: localStorage.getItem("theme") || "dark",
-        model: localStorage.getItem("model") || "openrouter/elephant-alpha"
+        model: localStorage.getItem("model") || "openai/gpt-oss-120b:free"
     }
 };
 
 let isLoading = false;
+let currentAbortController = null;
 
 function init() {
     loadState();
@@ -75,7 +74,7 @@ function setupEventListeners() {
     document.getElementById("sendBtn").addEventListener("click", sendMessage);
     document.getElementById("deleteChatBtn").addEventListener("click", deleteCurrentChat);
     document.getElementById("themeToggle").addEventListener("click", toggleTheme);
-    document.getElementById("menuToggle").addEventListener("click", toggleSidebar);
+    
     
     document.getElementById("modelSelect").addEventListener("change", (e) => {
         state.settings.model = e.target.value;
@@ -209,10 +208,21 @@ async function sendMessage() {
     
     try {
         const history = chat.messages.filter(m => !m.loading && (m.role === "user" || m.role === "ai"));
-        const response = await callAPI(message, history.slice(0, -1));
+        currentAbortController = new AbortController();
+        const response = await callAPI(message, history.slice(0, -1), currentAbortController.signal);
+        currentAbortController = null;
         loadingMsg.content = response;
         loadingMsg.loading = false;
     } catch (error) {
+        if (error.name === "AbortError") {
+            chat.messages = chat.messages.filter(m => !m.loading);
+            saveState();
+            renderMessages();
+            isLoading = false;
+            input.disabled = false;
+            sendBtn.disabled = false;
+            return;
+        }
         showError(error.message);
     }
     
@@ -232,14 +242,7 @@ function showError(message) {
     setTimeout(() => toast.classList.remove("show"), 5000);
 }
 
-function enableInput() {
-    const input = document.getElementById("userInput");
-    const sendBtn = document.getElementById("sendBtn");
-    input.disabled = false;
-    sendBtn.disabled = false;
-}
-
-async function callAPI(userMessage, history) {
+async function callAPI(userMessage, history, signal = null) {
     const messages = [
         { role: "system", content: "You are a helpful assistant." },
         ...history.map(m => ({
@@ -258,7 +261,8 @@ async function callAPI(userMessage, history) {
         body: JSON.stringify({
             model: state.settings.model,
             messages: messages
-        })
+        }),
+        signal: signal
     });
     
     const text = await response.text();
@@ -324,31 +328,6 @@ function renderMessages() {
                     deleteMessage(index);
                 });
                 btns.appendChild(deleteBtn);
-                
-                const editBtn = document.createElement("button");
-                editBtn.className = "msg-btn";
-                editBtn.innerHTML = "✏️";
-                editBtn.title = "Edit";
-                editBtn.addEventListener("click", (e) => {
-                    e.stopPropagation();
-                    startEditMessage(div, index, msg.content);
-                });
-                btns.appendChild(editBtn);
-                
-                const editInput = document.createElement("textarea");
-                editInput.className = "msg-btn edit-input";
-                editInput.value = msg.content;
-                editInput.addEventListener("keydown", (e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        saveEditMessage(index, editInput.value);
-                    }
-                    if (e.key === "Escape") {
-                        cancelEditMessage(div, index, msg.content);
-                    }
-                });
-                editInput.addEventListener("blur", () => saveEditMessage(index, editInput.value));
-                div.appendChild(editInput);
             }
             
             if (msg.role === "ai") {
@@ -380,86 +359,43 @@ function deleteMessage(index) {
     const chat = getCurrentChat();
     if (!chat) return;
     
+    if (currentAbortController) {
+        currentAbortController.abort();
+        currentAbortController = null;
+    }
+    
+    if (isLoading) {
+        isLoading = false;
+        const input = document.getElementById("userInput");
+        const sendBtn = document.getElementById("sendBtn");
+        input.disabled = false;
+        sendBtn.disabled = false;
+    }
+    
     chat.messages.splice(index);
     saveState();
     renderMessages();
 }
 
-function startEditMessage(div, index, content) {
-    div.classList.add("editing");
-    const input = div.querySelector(".edit-input");
-    if (input) {
-        input.focus();
-        input.setSelectionRange(input.value.length, input.value.length);
-    }
-}
-
-let isEditing = false;
-
-function saveEditMessage(index, newContent) {
-    const chat = getCurrentChat();
-    if (!chat || isLoading) return;
-    
-    const div = document.querySelector(`.message[data-index="${index}"]`);
-    if (div) div.classList.remove("editing");
-    
-    const trimmedContent = newContent ? newContent.trim() : "";
-    
-    if (isEditing || !trimmedContent) return;
-    
-    isLoading = true;
-    isEditing = true;
-    
-    const input = document.getElementById("userInput");
-    const sendBtn = document.getElementById("sendBtn");
-    input.disabled = true;
-    sendBtn.disabled = true;
-    
-    chat.messages.splice(index + 1);
-    
-    chat.messages[index].content = trimmedContent;
-    
-    saveState();
-    renderMessages();
-    
-    const loadingMsg = { role: "ai", content: "", loading: true };
-    chat.messages.push(loadingMsg);
-    saveState();
-    renderMessages();
-    
-    const history = chat.messages.slice(0, -1).filter(m => !m.loading && (m.role === "user" || m.role === "ai"));
-    
-    callAPI(trimmedContent, history).then(response => {
-        loadingMsg.content = response;
-        loadingMsg.loading = false;
-        isLoading = false;
-        isEditing = false;
-        input.disabled = false;
-        sendBtn.disabled = false;
-        saveState();
-        renderMessages();
-    }).catch(error => {
-        showError(error.message);
-        chat.messages = chat.messages.filter(m => !m.loading);
-        isLoading = false;
-        isEditing = false;
-        input.disabled = false;
-        sendBtn.disabled = false;
-        saveState();
-        renderMessages();
-    });
-}
-
-function cancelEditMessage(div, index, originalContent) {
-    div.classList.remove("editing");
-}
-
 function regenerateResponse(index) {
     const chat = getCurrentChat();
-    if (!chat || index === 0 || isLoading) return;
+    if (!chat || index === 0) return;
     
     const userMsgIndex = index - 1;
     if (userMsgIndex < 0 || chat.messages[userMsgIndex].role !== "user") return;
+    
+    if (currentAbortController) {
+        currentAbortController.abort();
+        currentAbortController = null;
+    }
+    
+    if (isLoading) {
+        isLoading = false;
+        const input = document.getElementById("userInput");
+        const sendBtn = document.getElementById("sendBtn");
+        input.disabled = false;
+        sendBtn.disabled = false;
+    }
     
     const userMessage = chat.messages[userMsgIndex].content;
     
@@ -478,17 +414,22 @@ function regenerateResponse(index) {
     sendBtn.disabled = true;
     isLoading = true;
     
-    callAPI(userMessage, history).then(response => {
+    currentAbortController = new AbortController();
+    
+    callAPI(userMessage, history, currentAbortController.signal).then(response => {
         loadingMsg.content = response;
         loadingMsg.loading = false;
+        currentAbortController = null;
         isLoading = false;
         input.disabled = false;
         sendBtn.disabled = false;
         saveState();
         renderMessages();
     }).catch(error => {
+        if (error.name === "AbortError") return;
         showError(error.message);
         chat.messages = chat.messages.filter(m => !m.loading);
+        currentAbortController = null;
         isLoading = false;
         input.disabled = false;
         sendBtn.disabled = false;
