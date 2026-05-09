@@ -1,4 +1,4 @@
-const API_KEY = "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";
+const API_KEY = "openrouterApi";
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 const MODELS = [
@@ -18,6 +18,8 @@ let state = {
 
 let isLoading = false;
 let currentAbortController = null;
+let thinkingTimer = null;
+let thinkingStartTime = null;
 
 function init() {
     loadState();
@@ -25,7 +27,7 @@ function init() {
     renderModelSelect();
     setupEventListeners();
     loadChats();
-    
+
     if (state.chats.length === 0) {
         createNewChat();
     } else {
@@ -74,21 +76,21 @@ function setupEventListeners() {
     document.getElementById("sendBtn").addEventListener("click", sendMessage);
     document.getElementById("deleteChatBtn").addEventListener("click", deleteCurrentChat);
     document.getElementById("themeToggle").addEventListener("click", toggleTheme);
-    
-    
+
+
     document.getElementById("modelSelect").addEventListener("change", (e) => {
         state.settings.model = e.target.value;
         localStorage.setItem("model", e.target.value);
         updateModelBadge();
     });
-    
+
     document.getElementById("userInput").addEventListener("keydown", (e) => {
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             sendMessage();
         }
     });
-    
+
     document.getElementById("userInput").addEventListener("input", autoResize);
 }
 
@@ -103,10 +105,6 @@ function toggleTheme() {
     localStorage.setItem("theme", state.settings.theme);
     applyTheme();
     document.getElementById("themeToggle").textContent = state.settings.theme === "light" ? "🌙" : "☀️";
-}
-
-function toggleSidebar() {
-    document.getElementById("sidebar").classList.toggle("open");
 }
 
 function createNewChat() {
@@ -154,16 +152,16 @@ function switchToChat(chatId) {
 function deleteCurrentChat() {
     const chat = getCurrentChat();
     if (!chat) return;
-    
+
     if (confirm("Delete this chat?")) {
         state.chats = state.chats.filter(c => c.id !== chat.id);
-        
+
         if (state.chats.length === 0) {
             createNewChat();
         } else {
             switchToChat(state.chats[0].id);
         }
-        
+
         saveState();
         renderChatList();
     }
@@ -177,44 +175,61 @@ async function sendMessage() {
     const input = document.getElementById("userInput");
     const sendBtn = document.getElementById("sendBtn");
     const message = input.value.trim();
-    
+
     if (isLoading) return;
     if (!message) return;
     if (!state.settings.model) {
         alert("Please select a model");
         return;
     }
-    
+
     const chat = getCurrentChat();
     if (!chat) return;
-    
+
     isLoading = true;
     sendBtn.disabled = true;
     input.disabled = true;
-    
+
     if (chat.messages.length === 0) {
         chat.title = message.slice(0, 30) + (message.length > 30 ? "..." : "");
         updateChatTitle();
     }
-    
-    chat.messages.push({ role: "user", content: message.trim() });
+
+    chat.messages.push({ role: "user", content: message.trim(), timestamp: Date.now() });
     input.value = "";
     autoResize();
     renderMessages();
-    
+
     const loadingMsg = { role: "ai", content: "", loading: true };
     chat.messages.push(loadingMsg);
     renderMessages();
-    
+
+    thinkingStartTime = Date.now();
+    thinkingTimer = setInterval(() => {
+        const seconds = Math.floor((Date.now() - thinkingStartTime) / 1000);
+        const timerEl = document.getElementById("thinkingTimer");
+        if (timerEl) timerEl.textContent = `Думаю: ${seconds}с`;
+    }, 1000);
+
     try {
         const history = chat.messages.filter(m => !m.loading && (m.role === "user" || m.role === "ai"));
         currentAbortController = new AbortController();
         const response = await callAPI(message, history.slice(0, -1), currentAbortController.signal);
         currentAbortController = null;
+        if (thinkingTimer) {
+            clearInterval(thinkingTimer);
+            thinkingTimer = null;
+        }
         loadingMsg.content = response;
         loadingMsg.loading = false;
+        loadingMsg.responseTime = Date.now() - thinkingStartTime;
+        loadingMsg.responseTimestamp = Date.now();
     } catch (error) {
         if (error.name === "AbortError") {
+            if (thinkingTimer) {
+                clearInterval(thinkingTimer);
+                thinkingTimer = null;
+            }
             chat.messages = chat.messages.filter(m => !m.loading);
             saveState();
             renderMessages();
@@ -225,11 +240,16 @@ async function sendMessage() {
         }
         showError(error.message);
     }
-    
+
+    if (thinkingTimer) {
+        clearInterval(thinkingTimer);
+        thinkingTimer = null;
+    }
+
     chat.messages = chat.messages.filter(m => !m.loading);
     saveState();
     renderMessages();
-    
+
     isLoading = false;
     input.disabled = false;
     sendBtn.disabled = false;
@@ -246,12 +266,12 @@ async function callAPI(userMessage, history, signal = null) {
     const messages = [
         { role: "system", content: "You are a helpful assistant." },
         ...history.map(m => ({
-            role: m.role === "ai" ? "assistant" : "user", 
+            role: m.role === "ai" ? "assistant" : "user",
             content: m.content
         })),
         { role: "user", content: userMessage }
     ];
-    
+
     const response = await fetch(OPENROUTER_API_URL, {
         method: "POST",
         headers: {
@@ -264,7 +284,7 @@ async function callAPI(userMessage, history, signal = null) {
         }),
         signal: signal
     });
-    
+
     const text = await response.text();
     let data;
     try {
@@ -272,31 +292,31 @@ async function callAPI(userMessage, history, signal = null) {
     } catch {
         throw new Error("Invalid JSON response: " + text.slice(0, 200));
     }
-    
+
     if (!response.ok) {
         throw new Error(data.error?.message || `Error ${response.status}: ${text.slice(0, 100)}`);
     }
-    
+
     if (!data.choices || !data.choices[0]) {
         throw new Error("No response from AI");
     }
-    
+
     return data.choices[0].message.content;
 }
 
 function renderMessages() {
     const container = document.getElementById("messages");
     container.innerHTML = "";
-    
+
     const chat = getCurrentChat();
     if (!chat) return;
-    
+
     chat.messages.forEach((msg, index) => {
         const div = document.createElement("div");
         div.className = `message ${msg.role}`;
-        
+
         if (msg.loading) {
-            div.innerHTML = '<div class="loading"><span></span><span></span><span></span></div>';
+            div.innerHTML = `<div class="loading"><span></span><span></span><span></span></div><div class="thinking-timer" id="thinkingTimer">Думаю: 0с</div>`;
         } else if (msg.error) {
             div.className += " error-message";
             div.textContent = msg.content;
@@ -304,10 +324,31 @@ function renderMessages() {
             div.className += " actions";
             div.innerHTML = formatMessage(msg.content);
             div.dataset.index = index;
-            
+
+            if (msg.timestamp) {
+                const timeDiv = document.createElement("div");
+                timeDiv.className = "message-time";
+                timeDiv.textContent = formatTime(msg.timestamp);
+                div.appendChild(timeDiv);
+            }
+
+            if (msg.role === "ai" && msg.responseTime) {
+                const timeDiv = document.createElement("div");
+                timeDiv.className = "message-time";
+                timeDiv.textContent = formatTime(msg.responseTimestamp);
+                div.appendChild(timeDiv);
+            }
+
+            if (msg.role === "ai" && msg.responseTime) {
+                const timeDiv = document.createElement("div");
+                timeDiv.className = "response-time";
+                timeDiv.textContent = `Сгенерировано за ${Math.round(msg.responseTime / 1000)} сек`;
+                div.appendChild(timeDiv);
+            }
+
             const btns = document.createElement("div");
             btns.className = "message-btns";
-            
+
             const copyBtn = document.createElement("button");
             copyBtn.className = "msg-btn";
             copyBtn.innerHTML = "📋";
@@ -317,7 +358,7 @@ function renderMessages() {
                 navigator.clipboard.writeText(msg.content);
             });
             btns.appendChild(copyBtn);
-            
+
             if (msg.role === "user") {
                 const deleteBtn = document.createElement("button");
                 deleteBtn.className = "msg-btn delete";
@@ -329,7 +370,7 @@ function renderMessages() {
                 });
                 btns.appendChild(deleteBtn);
             }
-            
+
             if (msg.role === "ai") {
                 const regenerateBtn = document.createElement("button");
                 regenerateBtn.className = "msg-btn";
@@ -341,14 +382,19 @@ function renderMessages() {
                 });
                 btns.appendChild(regenerateBtn);
             }
-            
+
             div.appendChild(btns);
         }
-        
+
         container.appendChild(div);
     });
-    
+
     container.scrollTop = container.scrollHeight;
+}
+
+function formatTime(timestamp) {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function formatMessage(content) {
@@ -358,12 +404,12 @@ function formatMessage(content) {
 function deleteMessage(index) {
     const chat = getCurrentChat();
     if (!chat) return;
-    
+
     if (currentAbortController) {
         currentAbortController.abort();
         currentAbortController = null;
     }
-    
+
     if (isLoading) {
         isLoading = false;
         const input = document.getElementById("userInput");
@@ -371,7 +417,7 @@ function deleteMessage(index) {
         input.disabled = false;
         sendBtn.disabled = false;
     }
-    
+
     chat.messages.splice(index);
     saveState();
     renderMessages();
@@ -380,15 +426,15 @@ function deleteMessage(index) {
 function regenerateResponse(index) {
     const chat = getCurrentChat();
     if (!chat || index === 0) return;
-    
+
     const userMsgIndex = index - 1;
     if (userMsgIndex < 0 || chat.messages[userMsgIndex].role !== "user") return;
-    
+
     if (currentAbortController) {
         currentAbortController.abort();
         currentAbortController = null;
     }
-    
+
     if (isLoading) {
         isLoading = false;
         const input = document.getElementById("userInput");
@@ -396,29 +442,38 @@ function regenerateResponse(index) {
         input.disabled = false;
         sendBtn.disabled = false;
     }
-    
+
     const userMessage = chat.messages[userMsgIndex].content;
-    
+
     const history = chat.messages.slice(0, userMsgIndex).filter(m => !m.loading && (m.role === "user" || m.role === "ai"));
-    
+
     chat.messages.splice(userMsgIndex + 1);
-    
+
     const loadingMsg = { role: "ai", content: "", loading: true };
     chat.messages.push(loadingMsg);
     saveState();
     renderMessages();
-    
+
     const input = document.getElementById("userInput");
     const sendBtn = document.getElementById("sendBtn");
     input.disabled = true;
     sendBtn.disabled = true;
     isLoading = true;
-    
+
     currentAbortController = new AbortController();
-    
+    let regenThinkingStart = Date.now();
+    let regenTimer = setInterval(() => {
+        const seconds = Math.floor((Date.now() - regenThinkingStart) / 1000);
+        const timerEl = document.getElementById("thinkingTimer");
+        if (timerEl) timerEl.textContent = `Думаю: ${seconds}с`;
+    }, 1000);
+
     callAPI(userMessage, history, currentAbortController.signal).then(response => {
+        clearInterval(regenTimer);
         loadingMsg.content = response;
         loadingMsg.loading = false;
+        loadingMsg.responseTime = Date.now() - regenThinkingStart;
+        loadingMsg.responseTimestamp = Date.now();
         currentAbortController = null;
         isLoading = false;
         input.disabled = false;
@@ -427,6 +482,7 @@ function regenerateResponse(index) {
         renderMessages();
     }).catch(error => {
         if (error.name === "AbortError") return;
+        clearInterval(regenTimer);
         showError(error.message);
         chat.messages = chat.messages.filter(m => !m.loading);
         currentAbortController = null;
